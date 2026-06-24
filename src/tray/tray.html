@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IRustPeek</title>
+    <link rel="stylesheet" href="./tray.css">
+  </head>
+  <body>
+    <section class="tray-panel">
+      <header>
+        <img src="../assets/icon.png" alt="">
+        <div>
+          <h1>IRustPeek</h1>
+          <p id="count">0 máquinas</p>
+        </div>
+      </header>
+
+      <div id="devices" class="devices"></div>
+
+      <footer>
+        <button id="settings" type="button">
+          <span class="icon">⚙</span>
+          <span>Configurações</span>
+        </button>
+        <button id="sync" type="button">
+          <span id="sync-icon" class="icon">↻</span>
+          <span id="sync-label">Sincronizar agora</span>
+        </button>
+        <label class="check-row">
+          <input id="launch" type="checkbox">
+          <span>Iniciar com o sistema</span>
+        </label>
+        <button id="quit" type="button" class="quit">
+          <span class="icon">⏻</span>
+          <span>Sair</span>
+        </button>
+      </footer>
+    </section>
+
+    <script src="./tray.js"></script>
+  </body>
+</html>

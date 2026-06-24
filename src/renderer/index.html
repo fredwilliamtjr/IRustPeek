@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IRustPeek</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <img src="../assets/icon.png" alt="">
+          <div>
+            <h1>IRustPeek</h1>
+            <p class="muted">Catálogo RustDesk sincronizável</p>
+          </div>
+        </div>
+
+        <section class="settings sync-card">
+          <div>
+            <h2>Sincronização</h2>
+            <p class="muted">Escolha o serviço que vai manter sua lista atualizada</p>
+          </div>
+
+          <div class="provider-field">
+            <label for="sync-provider">Serviço</label>
+            <select id="sync-provider"></select>
+          </div>
+
+          <p id="sync-note" class="sync-note"></p>
+
+          <div class="button-row">
+            <button id="reload" class="sync-button">
+              <span id="reload-icon" class="sync-icon">↻</span>
+              <span id="reload-label">Sincronizar</span>
+            </button>
+          </div>
+        </section>
+
+        <label class="toggle-row">
+          <input id="launch-at-login" type="checkbox">
+          <span>Iniciar com o sistema</span>
+        </label>
+
+        <div class="app-version" id="app-version"></div>
+      </aside>
+
+      <section class="content">
+        <header class="content-header">
+          <div>
+            <h2>Máquinas</h2>
+            <p id="device-count" class="muted"></p>
+          </div>
+          <div class="device-toolbar">
+            <input id="search" type="search" placeholder="Buscar">
+            <button id="new-device" class="primary add-device">
+              <span>＋</span>
+              <span>Nova máquina</span>
+            </button>
+          </div>
+        </header>
+
+        <div id="device-list" class="device-list"></div>
+      </section>
+
+      <dialog id="device-dialog">
+        <form id="device-form" method="dialog">
+          <input id="device-id" type="hidden">
+          <header>
+            <h2 id="dialog-title">Nova máquina</h2>
+            <button type="button" id="close-dialog" class="icon-button">×</button>
+          </header>
+
+          <label>
+            Nome
+            <input id="device-name" autocomplete="off" required>
+          </label>
+
+          <label>
+            ID do RustDesk
+            <input id="rustdesk-id" inputmode="numeric" autocomplete="off" placeholder="123 456 789" required>
+          </label>
+
+          <label>
+            Tags
+            <input id="device-tags" autocomplete="off" placeholder="casa, mac">
+          </label>
+
+          <label>
+            Notas
+            <textarea id="device-notes" rows="3"></textarea>
+          </label>
+
+          <footer>
+            <button type="button" id="delete-device" class="danger">Remover</button>
+            <span></span>
+            <button type="button" id="cancel-dialog">Cancelar</button>
+            <button type="submit" class="primary">Salvar</button>
+          </footer>
+        </form>
+      </dialog>
+    </main>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>
