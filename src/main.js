@@ -466,13 +466,10 @@ function syncNow() {
 }
 
 function showMainWindow() {
-  if (process.platform === 'darwin' && app.dock) {
-    app.dock.show();
-  }
-
   if (mainWindow) {
     mainWindow.show();
     mainWindow.focus();
+    if (process.platform === 'darwin') app.focus({ steal: true });
     return;
   }
 
@@ -493,14 +490,14 @@ function showMainWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    if (process.platform === 'darwin') app.focus({ steal: true });
+  });
   mainWindow.on('close', (event) => {
     if (isQuitting) return;
     event.preventDefault();
     mainWindow.hide();
-    if (process.platform === 'darwin' && app.dock) {
-      app.dock.hide();
-    }
   });
   mainWindow.on('closed', () => {
     mainWindow = null;
