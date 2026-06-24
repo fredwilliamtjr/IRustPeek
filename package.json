@@ -11,7 +11,10 @@
     "dev": "electron . --dev",
     "build": "electron-builder",
     "build:mac:dir": "electron-builder --mac dir",
-    "build:mac:universal": "electron-builder --mac dir --universal"
+    "build:mac:universal": "electron-builder --mac dir --universal",
+    "build:win": "electron-builder --win",
+    "build:win:dir": "electron-builder --win dir",
+    "build:win:portable": "electron-builder --win portable"
   },
   "dependencies": {},
   "devDependencies": {
@@ -39,8 +42,10 @@
       ]
     },
     "win": {
+      "icon": "build/icon.png",
       "target": [
-        "nsis"
+        "nsis",
+        "portable"
       ]
     },
     "nsis": {
