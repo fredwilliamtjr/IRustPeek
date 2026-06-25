@@ -73,9 +73,7 @@ function cloudServiceOptions() {
     {
       id: 'icloud',
       label: 'iCloud Drive',
-      paths: process.platform === 'darwin'
-        ? [path.join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs')]
-        : []
+      paths: iCloudPaths(home)
     },
     {
       id: 'google-drive',
@@ -109,11 +107,44 @@ function googleDrivePaths(home, cloudStorage) {
     paths.push(googleDriveRoot ? googleDriveMyDrivePath(googleDriveRoot) : null);
     paths.push(path.join(home, 'Google Drive'));
   } else if (process.platform === 'win32') {
+    // Google Drive para Desktop monta como unidade virtual (G:, H:, Z:, ...).
+    // A subpasta raiz é localizada: "My Drive" (en) ou "Meu Drive" (pt-BR), etc.
+    for (const driveRoot of windowsDriveRoots()) {
+      for (const folder of GOOGLE_DRIVE_ROOT_NAMES) {
+        paths.push(path.join(driveRoot, folder));
+      }
+    }
+    // Fallback: instalações antigas que espelhavam dentro da home.
     paths.push(path.join(home, 'My Drive'));
     paths.push(path.join(home, 'Google Drive'));
   }
 
   return compactUniquePaths(paths);
+}
+
+const GOOGLE_DRIVE_ROOT_NAMES = ['My Drive', 'Meu Drive', 'Mi unidad', 'Mon Drive'];
+
+function iCloudPaths(home) {
+  if (process.platform === 'darwin') {
+    return [path.join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs')];
+  }
+  if (process.platform === 'win32') {
+    return [path.join(home, 'iCloudDrive'), path.join(home, 'iCloud Drive')];
+  }
+  return [];
+}
+
+function windowsDriveRoots() {
+  const roots = [];
+  for (let code = 'A'.charCodeAt(0); code <= 'Z'.charCodeAt(0); code += 1) {
+    const root = `${String.fromCharCode(code)}:\\`;
+    try {
+      if (fs.existsSync(root)) roots.push(root);
+    } catch {
+      // ignora unidades inacessíveis
+    }
+  }
+  return roots;
 }
 
 function oneDrivePaths(home, cloudStorage) {
