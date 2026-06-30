@@ -32,18 +32,28 @@ async function init() {
 function bindEvents() {
   document.getElementById('new-device').addEventListener('click', () => openDeviceDialog());
   document.getElementById('reload').addEventListener('click', async () => {
-    render({
-      ...state,
-      settings: {
-        ...state.settings,
-        syncInProgress: true
-      }
-    });
-    render(await window.iRustPeek.syncNow());
+    try {
+      render({
+        ...state,
+        settings: {
+          ...state.settings,
+          syncInProgress: true
+        }
+      });
+      render(await window.iRustPeek.syncNow());
+    } catch (error) {
+      alert(error.message || 'Não foi possível sincronizar.');
+      render(await window.iRustPeek.getState());
+    }
   });
   elements.syncProvider.addEventListener('change', async (event) => {
     if (!event.target.value) return;
-    render(await window.iRustPeek.setSyncProvider(event.target.value));
+    try {
+      render(await window.iRustPeek.setSyncProvider(event.target.value));
+    } catch (error) {
+      alert(error.message || 'Não foi possível trocar o serviço de sincronização.');
+      render(await window.iRustPeek.getState());
+    }
   });
   elements.launchAtLogin.addEventListener('change', async (event) => {
     render(await window.iRustPeek.setLaunchAtLogin(event.target.checked));

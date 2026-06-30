@@ -6,6 +6,7 @@ const path = require('path');
 const APP_NAME = 'IRustPeek';
 const BOOK_FILE = 'address-book.json';
 const SETTINGS_FILE = 'settings.json';
+const GOOGLE_DRIVE_NAMES = ['My Drive', 'Meu Drive'];
 
 let mainWindow = null;
 let trayWindow = null;
@@ -61,8 +62,12 @@ function getSyncFilePath() {
 function defaultSyncFilePath() {
   const services = cloudServiceOptions();
   const firstExisting = services.find((service) => service.available);
-  const base = firstExisting ? firstExisting.path : path.join(os.homedir(), APP_NAME);
+  const base = firstExisting ? firstExisting.path : localDataPath();
   return path.join(base, APP_NAME, BOOK_FILE);
+}
+
+function localDataPath() {
+  return app.isReady() ? app.getPath('userData') : path.join(os.homedir(), APP_NAME);
 }
 
 function cloudServiceOptions() {
@@ -88,7 +93,7 @@ function cloudServiceOptions() {
   ];
 
   return services.map((service) => {
-    const existingPath = service.paths.find((candidatePath) => candidatePath && fs.existsSync(candidatePath));
+    const existingPath = service.paths.find((candidatePath) => isWritableDirectory(candidatePath));
     return {
       id: service.id,
       label: service.label,
@@ -177,8 +182,24 @@ function compactUniquePaths(paths) {
 }
 
 function googleDriveMyDrivePath(root) {
-  const myDrive = path.join(root, 'My Drive');
-  return fs.existsSync(myDrive) ? myDrive : root;
+  const myDrive = GOOGLE_DRIVE_NAMES
+    .map((driveName) => path.join(root, driveName))
+    .find((candidatePath) => fs.existsSync(candidatePath));
+
+  return myDrive || root;
+}
+
+function isWritableDirectory(candidatePath) {
+  if (!candidatePath) return false;
+
+  try {
+    const stats = fs.statSync(candidatePath);
+    if (!stats.isDirectory()) return false;
+    fs.accessSync(candidatePath, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function firstExistingGlob(parent, pattern) {
@@ -221,9 +242,46 @@ function saveSettings(nextSettings = settings) {
 
 function ensureBookFile() {
   const syncFilePath = getSyncFilePath();
-  fs.mkdirSync(path.dirname(syncFilePath), { recursive: true });
-  if (!fs.existsSync(syncFilePath)) {
-    writeJsonAtomic(syncFilePath, emptyBook());
+  try {
+    ensureBookFileAt(syncFilePath);
+  } catch (error) {
+    const fallbackPath = repairedSyncFilePath(syncFilePath) || defaultSyncFilePath();
+    if (path.normalize(fallbackPath) === path.normalize(syncFilePath)) {
+      throw error;
+    }
+
+    console.error(`[${APP_NAME}] Sync file unavailable, falling back to ${fallbackPath}:`, error);
+    saveSettings({ syncFilePath: fallbackPath });
+    ensureBookFileAt(fallbackPath);
+  }
+}
+
+function repairedSyncFilePath(filePath) {
+  const providerHint = providerIdFromPath(filePath);
+  if (!providerHint) return null;
+
+  const service = cloudServiceOptions().find((item) => item.id === providerHint);
+  return service?.available ? service.targetFile : null;
+}
+
+function providerIdFromPath(filePath) {
+  const normalized = path.normalize(filePath || '');
+  if (normalized.includes('GoogleDrive-') || normalized.includes(`${path.sep}Google Drive${path.sep}`)) {
+    return 'google-drive';
+  }
+  if (normalized.includes(`${path.sep}OneDrive`)) {
+    return 'onedrive';
+  }
+  if (normalized.includes('com~apple~CloudDocs')) {
+    return 'icloud';
+  }
+  return null;
+}
+
+function ensureBookFileAt(filePath) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  if (!fs.existsSync(filePath)) {
+    writeJsonAtomic(filePath, emptyBook());
   }
 }
 
@@ -481,17 +539,24 @@ function syncNow() {
   syncInProgress = true;
   broadcastState();
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     setTimeout(() => {
-      if (pendingWriteToCurrentProvider) {
-        saveBook(addressBook);
-        pendingWriteToCurrentProvider = false;
-      } else {
-        loadBook();
+      try {
+        if (pendingWriteToCurrentProvider) {
+          saveBook(addressBook);
+          pendingWriteToCurrentProvider = false;
+        } else {
+          loadBook();
+        }
+        syncInProgress = false;
+        broadcastState();
+        resolve(getState());
+      } catch (error) {
+        console.error(`[${APP_NAME}] Failed to sync address book:`, error);
+        syncInProgress = false;
+        broadcastState();
+        reject(new Error('Não foi possível sincronizar. Verifique se a pasta escolhida permite gravação.'));
       }
-      syncInProgress = false;
-      broadcastState();
-      resolve(getState());
     }, 700);
   });
 }
