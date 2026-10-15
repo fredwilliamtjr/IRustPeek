@@ -482,6 +482,11 @@ function createTrayWindow() {
     }
   });
 
+  if (process.platform === 'darwin') {
+    // Keep the quick menu available in the current Space when it receives focus.
+    trayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
+
   trayWindow.loadFile(path.join(__dirname, 'tray', 'tray.html'));
   trayWindow.on('blur', () => {
     if (!trayWindow?.webContents?.isDevToolsOpened()) {
