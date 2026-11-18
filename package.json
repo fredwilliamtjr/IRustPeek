@@ -77,7 +77,9 @@
         "xdg-utils",
         "libatspi2.0-0 | libatspi2.0-0t64",
         "libuuid1",
-        "libsecret-1-0"
+        "libsecret-1-0",
+        "libasound2 | libasound2t64",
+        "libgbm1"
       ]
     }
   },
