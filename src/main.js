@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, ipcMain, dialog, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, nativeImage } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -122,6 +122,13 @@ function googleDrivePaths(home, cloudStorage) {
     // Fallback: instalações antigas que espelhavam dentro da home.
     paths.push(path.join(home, 'My Drive'));
     paths.push(path.join(home, 'Google Drive'));
+  } else if (process.platform === 'linux') {
+    // Não há cliente oficial do Google Drive para Linux; estas são as pastas
+    // usuais de rclone, Insync e google-drive-ocamlfuse.
+    for (const folder of ['Google Drive', 'GoogleDrive', 'google-drive', 'gdrive']) {
+      const root = path.join(home, folder);
+      paths.push(googleDriveMyDrivePath(root));
+    }
   }
 
   return compactUniquePaths(paths);
@@ -160,6 +167,9 @@ function oneDrivePaths(home, cloudStorage) {
     paths.push(path.join(home, 'OneDrive'));
   } else if (process.platform === 'win32') {
     paths.push(process.env.OneDrive);
+    paths.push(path.join(home, 'OneDrive'));
+  } else if (process.platform === 'linux') {
+    // Pasta padrão do cliente "onedrive" (abraunegg) e do Insync.
     paths.push(path.join(home, 'OneDrive'));
   }
 
@@ -219,7 +229,7 @@ function settingsFilePath() {
 function loadSettings() {
   const defaults = {
     syncFilePath: defaultSyncFilePath(),
-    launchAtLogin: app.getLoginItemSettings().openAtLogin
+    launchAtLogin: isLaunchAtLoginEnabled()
   };
 
   try {
@@ -266,7 +276,8 @@ function repairedSyncFilePath(filePath) {
 
 function providerIdFromPath(filePath) {
   const normalized = path.normalize(filePath || '');
-  if (normalized.includes('GoogleDrive-') || normalized.includes(`${path.sep}Google Drive${path.sep}`)) {
+  if (normalized.includes('GoogleDrive-')
+    || ['Google Drive', 'GoogleDrive', 'google-drive', 'gdrive'].some((folder) => normalized.includes(`${path.sep}${folder}${path.sep}`))) {
     return 'google-drive';
   }
   if (normalized.includes(`${path.sep}OneDrive`)) {
@@ -384,12 +395,27 @@ function debounce(fn, wait) {
 function createTray() {
   tray = new Tray(createTrayIcon());
   tray.setToolTip(APP_NAME);
+
+  if (process.platform === 'linux') {
+    // No Linux (Ubuntu/GNOME com AppIndicator) o ícone da bandeja é um
+    // StatusNotifierItem: o clique abre o menu nativo e não há getBounds()
+    // para posicionar o painel. Por isso o menu rápido vira um menu nativo.
+    refreshTrayMenu();
+    return;
+  }
+
   tray.on('click', () => {
     toggleTrayWindow();
   });
   tray.on('right-click', () => {
     toggleTrayWindow();
   });
+}
+
+function trayIconSize() {
+  if (process.platform === 'darwin') return 18;
+  if (process.platform === 'linux') return 24;
+  return 16;
 }
 
 function createTrayIcon() {
@@ -400,8 +426,8 @@ function createTrayIcon() {
 
   if (!image.isEmpty()) {
     const resized = image.resize({
-      width: process.platform === 'darwin' ? 18 : 16,
-      height: process.platform === 'darwin' ? 18 : 16
+      width: trayIconSize(),
+      height: trayIconSize()
     });
     resized.setTemplateImage(process.platform === 'darwin');
     return resized;
@@ -460,7 +486,46 @@ function menuIcon(name) {
 }
 
 function refreshTrayMenu() {
-  if (tray) tray.setToolTip(APP_NAME);
+  if (!tray) return;
+  tray.setToolTip(APP_NAME);
+  if (process.platform === 'linux') {
+    // O spec StatusNotifierItem exige reenviar o menu inteiro a cada mudança.
+    tray.setContextMenu(Menu.buildFromTemplate(linuxTrayMenuTemplate()));
+  }
+}
+
+function linuxTrayMenuTemplate() {
+  const devices = addressBook.devices.map((device) => ({
+    label: `${device.name}  (${device.rustdeskId})`,
+    click: () => openRustDesk(device.rustdeskId)
+  }));
+
+  return [
+    ...(devices.length ? devices : [{ label: 'Nenhuma máquina cadastrada', enabled: false }]),
+    { type: 'separator' },
+    {
+      label: syncInProgress ? 'Sincronizando…' : 'Sincronizar agora',
+      enabled: !syncInProgress,
+      click: () => {
+        syncNow().catch((error) => dialog.showErrorBox(APP_NAME, error.message));
+      }
+    },
+    { label: 'Configurações…', click: () => showMainWindow() },
+    {
+      label: 'Iniciar com o sistema',
+      type: 'checkbox',
+      checked: Boolean(settings?.launchAtLogin),
+      click: () => toggleLaunchAtLogin()
+    },
+    { type: 'separator' },
+    {
+      label: 'Sair',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      }
+    }
+  ];
 }
 
 function createTrayWindow() {
@@ -606,6 +671,7 @@ function showMainWindow() {
 }
 
 function broadcastState() {
+  if (process.platform === 'linux') refreshTrayMenu();
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('state:changed', getState());
   }
@@ -712,11 +778,58 @@ function toggleLaunchAtLogin() {
 }
 
 function setLaunchAtLogin(enabled) {
-  app.setLoginItemSettings({
-    openAtLogin: enabled,
-    openAsHidden: true
-  });
+  if (process.platform === 'linux') {
+    setLinuxAutostart(Boolean(enabled));
+  } else {
+    app.setLoginItemSettings({
+      openAtLogin: enabled,
+      openAsHidden: true
+    });
+  }
   saveSettings({ launchAtLogin: Boolean(enabled) });
+}
+
+function isLaunchAtLoginEnabled() {
+  if (process.platform === 'linux') {
+    return fs.existsSync(linuxAutostartFile());
+  }
+  return app.getLoginItemSettings().openAtLogin;
+}
+
+// app.setLoginItemSettings não existe no Linux: o padrão freedesktop é um
+// arquivo .desktop em ~/.config/autostart (GNOME, KDE, XFCE, Cinnamon...).
+function linuxAutostartFile() {
+  const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
+  return path.join(configHome, 'autostart', 'irustpeek.desktop');
+}
+
+function linuxExecutablePath() {
+  // AppImage: process.execPath aponta para o ponto de montagem temporário;
+  // o caminho estável do arquivo vem na variável APPIMAGE.
+  return process.env.APPIMAGE || process.execPath;
+}
+
+function setLinuxAutostart(enabled) {
+  const file = linuxAutostartFile();
+  if (!enabled) {
+    fs.rmSync(file, { force: true });
+    return;
+  }
+
+  // Escapes da especificação Desktop Entry para argumentos entre aspas.
+  const exec = linuxExecutablePath().replace(/(["`$\\])/g, '\\$1').replace(/%/g, '%%');
+  const entry = [
+    '[Desktop Entry]',
+    'Type=Application',
+    `Name=${APP_NAME}`,
+    'Comment=Agenda sincronizável de endereços RustDesk',
+    `Exec="${exec}"`,
+    'Terminal=false',
+    'X-GNOME-Autostart-enabled=true',
+    ''
+  ].join('\n');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, entry, 'utf8');
 }
 
 app.whenReady().then(boot);
