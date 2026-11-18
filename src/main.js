@@ -123,8 +123,10 @@ function googleDrivePaths(home, cloudStorage) {
     paths.push(path.join(home, 'My Drive'));
     paths.push(path.join(home, 'Google Drive'));
   } else if (process.platform === 'linux') {
-    // Não há cliente oficial do Google Drive para Linux; estas são as pastas
-    // usuais de rclone, Insync e google-drive-ocamlfuse.
+    // Não há cliente oficial do Google Drive para Linux. Primeiro o ExpanDrive
+    // (pasta padrão ~/ExpanDrive/Google Drive); depois as pastas usuais de
+    // rclone, Insync e google-drive-ocamlfuse.
+    paths.push(expanDriveGooglePath(path.join(home, 'ExpanDrive', 'Google Drive')));
     for (const folder of ['Google Drive', 'GoogleDrive', 'google-drive', 'gdrive']) {
       const root = path.join(home, folder);
       paths.push(googleDriveMyDrivePath(root));
@@ -189,6 +191,13 @@ function compactUniquePaths(paths) {
   }
 
   return unique;
+}
+
+// ExpanDrive (Linux): se a pasta IRustPeek já está na raiz da montagem, usa a
+// raiz; senão, "My Drive"/"Meu Drive" quando existir; senão, a própria raiz.
+function expanDriveGooglePath(root) {
+  if (fs.existsSync(path.join(root, APP_NAME, BOOK_FILE))) return root;
+  return googleDriveMyDrivePath(root);
 }
 
 function googleDriveMyDrivePath(root) {

@@ -125,7 +125,7 @@ A escolha do serviço é intencionalmente simples:
 - **Google Drive** quando a pasta local do Drive existe
 - **OneDrive** quando a pasta local do OneDrive existe
 
-No Linux não há cliente oficial do Google Drive; o IRustPeek reconhece as pastas usuais de rclone, Insync e google-drive-ocamlfuse (`~/Google Drive`, `~/GoogleDrive`, `~/google-drive`, `~/gdrive`) e a pasta `~/OneDrive` do cliente `onedrive`. Para qualquer outra pasta sincronizada, use **Escolher pasta** nas configurações.
+No Linux não há cliente oficial do Google Drive. O IRustPeek reconhece a pasta padrão do **ExpanDrive** (`~/ExpanDrive/Google Drive`) e as pastas usuais de rclone, Insync e google-drive-ocamlfuse (`~/Google Drive`, `~/GoogleDrive`, `~/google-drive`, `~/gdrive`), além de `~/OneDrive` do cliente `onedrive`. A sincronização em si é feita por esse cliente; se o Mac alterar a lista, clique em **Sincronizar agora** para reler o arquivo.
 
 Se o serviço escolhido já tiver máquinas, o IRustPeek carrega essa lista. Se estiver vazio, ele mantém a lista atual em tela e só grava no novo serviço quando você clicar em **Sincronizar**.
 
