@@ -1,6 +1,6 @@
 {
   "name": "irustpeek",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Catálogo sincronizável de endereços RustDesk para macOS, Windows e Linux.",
   "main": "src/main.js",
   "author": "Fred William",

@@ -17,6 +17,9 @@ let addressBook = emptyBook();
 let isQuitting = false;
 let syncInProgress = false;
 let pendingWriteToCurrentProvider = false;
+let waitingForMount = false;
+let mountRetryTimer = null;
+const MOUNT_RETRY_MS = 10000;
 
 function boot() {
   if (process.platform === 'darwin' && app.dock) {
@@ -124,9 +127,12 @@ function googleDrivePaths(home, cloudStorage) {
     paths.push(path.join(home, 'Google Drive'));
   } else if (process.platform === 'linux') {
     // Não há cliente oficial do Google Drive para Linux. Primeiro o ExpanDrive
-    // (pasta padrão ~/ExpanDrive/Google Drive); depois as pastas usuais de
+    // (~/ExpanDrive/Google Drive, ou "Google Drive 1", "Google Drive 2"... quando
+    // sobra uma pasta antiga da montagem anterior); depois as pastas usuais de
     // rclone, Insync e google-drive-ocamlfuse.
-    paths.push(expanDriveGooglePath(path.join(home, 'ExpanDrive', 'Google Drive')));
+    for (const root of expanDriveGoogleRoots(path.join(home, 'ExpanDrive'))) {
+      paths.push(expanDriveGooglePath(root));
+    }
     for (const folder of ['Google Drive', 'GoogleDrive', 'google-drive', 'gdrive']) {
       const root = path.join(home, folder);
       paths.push(googleDriveMyDrivePath(root));
@@ -191,6 +197,29 @@ function compactUniquePaths(paths) {
   }
 
   return unique;
+}
+
+// ExpanDrive (Linux): montagens ativas "Google Drive" ou "Google Drive N" em
+// ~/ExpanDrive. Pasta não montada (sobra de uma montagem antiga) nunca conta.
+// Preferência: a que já tem o catálogo; depois o menor número.
+function expanDriveGoogleRoots(base) {
+  let names = [];
+  try {
+    names = fs.readdirSync(base).filter((name) => /^Google Drive( \d+)?$/.test(name));
+  } catch {
+    return [];
+  }
+  return names
+    .map((name) => {
+      const root = path.join(base, name);
+      const hasBook = fs.existsSync(path.join(root, APP_NAME, BOOK_FILE))
+        || GOOGLE_DRIVE_NAMES.some((drive) => fs.existsSync(path.join(root, drive, APP_NAME, BOOK_FILE)));
+      const number = Number((/ (\d+)$/.exec(name) || [])[1] || 0);
+      return { root, mounted: isMountPoint(root), hasBook, number };
+    })
+    .filter((entry) => entry.mounted)
+    .sort((a, b) => Number(b.hasBook) - Number(a.hasBook) || a.number - b.number)
+    .map((entry) => entry.root);
 }
 
 // ExpanDrive (Linux): se a pasta IRustPeek já está na raiz da montagem, usa a
@@ -261,6 +290,25 @@ function saveSettings(nextSettings = settings) {
 
 function ensureBookFile() {
   const syncFilePath = getSyncFilePath();
+
+  // Linux/ExpanDrive: se a pasta salva não é uma montagem ativa (ExpanDrive
+  // ainda não montou, ou montou com outro nome como "Google Drive 1"), não cria
+  // nada nela — isso deixaria uma pasta local que ocupa o nome da montagem.
+  const expanDriveRoot = expanDriveRootOf(syncFilePath);
+  if (expanDriveRoot && !isMountPoint(expanDriveRoot)) {
+    const mounted = repairedSyncFilePath(syncFilePath);
+    if (mounted && path.normalize(mounted) !== path.normalize(syncFilePath)) {
+      console.error(`[${APP_NAME}] ExpanDrive montado em outro caminho; usando ${mounted}`);
+      saveSettings({ syncFilePath: mounted });
+      ensureBookFileAt(mounted);
+      setWaitingForMount(false);
+      return;
+    }
+    setWaitingForMount(true);
+    return;
+  }
+  setWaitingForMount(false);
+
   try {
     ensureBookFileAt(syncFilePath);
   } catch (error) {
@@ -275,6 +323,40 @@ function ensureBookFile() {
   }
 }
 
+function setWaitingForMount(waiting) {
+  waitingForMount = waiting;
+  if (waiting && !mountRetryTimer) {
+    mountRetryTimer = setInterval(() => {
+      ensureBookFile();
+      if (!waitingForMount) {
+        loadBook();
+        watchBook();
+      }
+    }, MOUNT_RETRY_MS);
+  } else if (!waiting && mountRetryTimer) {
+    clearInterval(mountRetryTimer);
+    mountRetryTimer = null;
+  }
+}
+
+// Raiz da montagem do ExpanDrive (~/ExpanDrive/<pasta>) que contém o arquivo, ou null.
+function expanDriveRootOf(filePath) {
+  if (process.platform !== 'linux' || !filePath) return null;
+  const base = path.join(os.homedir(), 'ExpanDrive');
+  const relative = path.relative(base, path.resolve(filePath));
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  return path.join(base, relative.split(path.sep)[0]);
+}
+
+// Montagem ativa: a pasta está noutro dispositivo que a pasta-mãe (FUSE do ExpanDrive).
+function isMountPoint(dir) {
+  try {
+    return fs.statSync(dir).dev !== fs.statSync(path.dirname(dir)).dev;
+  } catch {
+    return false;
+  }
+}
+
 function repairedSyncFilePath(filePath) {
   const providerHint = providerIdFromPath(filePath);
   if (!providerHint) return null;
@@ -286,6 +368,7 @@ function repairedSyncFilePath(filePath) {
 function providerIdFromPath(filePath) {
   const normalized = path.normalize(filePath || '');
   if (normalized.includes('GoogleDrive-')
+    || /[\\/]Google Drive \d+[\\/]/.test(normalized)
     || ['Google Drive', 'GoogleDrive', 'google-drive', 'gdrive'].some((folder) => normalized.includes(`${path.sep}${folder}${path.sep}`))) {
     return 'google-drive';
   }
@@ -306,6 +389,12 @@ function ensureBookFileAt(filePath) {
 }
 
 function loadBook() {
+  if (waitingForMount) {
+    // Não lê a pasta local que está no lugar da montagem do ExpanDrive.
+    addressBook = emptyBook();
+    broadcastState();
+    return;
+  }
   try {
     const parsed = JSON.parse(fs.readFileSync(getSyncFilePath(), 'utf8'));
     addressBook = sanitizeBook(parsed);
@@ -364,6 +453,9 @@ function parseTags(value) {
 }
 
 function saveBook(nextBook) {
+  if (waitingForMount) {
+    throw new Error('Aguardando o ExpanDrive montar o Google Drive. Tente de novo em alguns segundos.');
+  }
   const sanitized = sanitizeBook({
     ...nextBook,
     updatedAt: new Date().toISOString()
@@ -510,7 +602,9 @@ function linuxTrayMenuTemplate() {
   }));
 
   return [
-    ...(devices.length ? devices : [{ label: 'Nenhuma máquina cadastrada', enabled: false }]),
+    ...(waitingForMount
+      ? [{ label: 'Aguardando o Google Drive (ExpanDrive)…', enabled: false }]
+      : devices.length ? devices : [{ label: 'Nenhuma máquina cadastrada', enabled: false }]),
     { type: 'separator' },
     {
       label: syncInProgress ? 'Sincronizando…' : 'Sincronizar agora',
