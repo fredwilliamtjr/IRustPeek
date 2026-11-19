@@ -33,6 +33,49 @@ jobs:
             release/*.dmg.blockmap
           if-no-files-found: error
 
+  mac-intel-login:
+    # Mac Intel: a fatia x86_64 precisa de assinatura para o macOS aceitar o
+    # app como item de login.
+    needs: mac
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install playwright-core (only for the check)
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw" && cd "$RUNNER_TEMP/pw"
+          npm init -y >/dev/null
+          npm i --no-audit --no-fund playwright-core@1.49.1
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac
+          path: dmg
+      - name: Login item with this build (x86_64)
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+        run: |
+          uname -m
+          hdiutil attach -nobrowse -readonly -mountpoint /tmp/irp dmg/*.dmg
+          ditto /tmp/irp/IRustPeek.app "$RUNNER_TEMP/new/IRustPeek.app"
+          hdiutil detach /tmp/irp
+          codesign -dv --arch x86_64 "$RUNNER_TEMP/new/IRustPeek.app"
+          codesign --verify --deep --strict "$RUNNER_TEMP/new/IRustPeek.app"
+          node test/mac-login-check.js "$RUNNER_TEMP/new/IRustPeek.app/Contents/MacOS/IRustPeek"
+      - name: Compare with published 0.1.8 (informative)
+        continue-on-error: true
+        env:
+          NODE_PATH: ${{ runner.temp }}/pw/node_modules
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.1.8 --repo "$GITHUB_REPOSITORY" -p 'IRustPeek-0.1.8-universal.dmg' -D old
+          hdiutil attach -nobrowse -readonly -mountpoint /tmp/irp-old old/*.dmg
+          ditto /tmp/irp-old/IRustPeek.app "$RUNNER_TEMP/old/IRustPeek.app"
+          hdiutil detach /tmp/irp-old
+          codesign -dv --arch x86_64 "$RUNNER_TEMP/old/IRustPeek.app" || true
+          node test/mac-login-check.js "$RUNNER_TEMP/old/IRustPeek.app/Contents/MacOS/IRustPeek" --expect-fail
+
   windows:
     runs-on: windows-latest
     steps:
@@ -87,7 +130,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [mac, windows, linux]
+    needs: [mac, mac-intel-login, windows, linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
